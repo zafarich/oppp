@@ -2,6 +2,15 @@ import {Bot, InlineKeyboard, session, Keyboard} from "grammy";
 import {MongoClient} from "mongodb";
 import dotenv from "dotenv";
 
+// Ovoz berish narxlari (so'mda)
+const VOTE_PRICES = {
+  SINGLE: 10000, // 1 ta ovoz uchun
+  DOUBLE: 12000, // 2 ta ovoz bo'lganda har biri uchun
+  MEDIUM: 14000, // 3-4 ta ovoz uchun
+  HIGH: 20000, // 5-10 ta ovoz uchun
+  BULK: 25000, // 10 tadan ko'p ovoz uchun
+};
+
 dotenv.config();
 
 // MongoDB ulanish
@@ -64,9 +73,42 @@ bot.hears("💰 Balansni ko'rish", async (ctx) => {
         "Siz hali ro'yxatdan o'tmagansiz. /start buyrug'ini yuboring."
       );
     }
-    await ctx.reply(`Sizning balansingiz: ${user.balance || 0} so'm`, {
-      reply_markup: getMainKeyboard(),
-    });
+
+    // Joriy ovozlar uchun to'langan summani hisoblash
+    const votes = user.votes || 0;
+
+    // Keyingi ovoz narxini hisoblash
+    let currentVotePrice;
+    const nextVoteCount = votes + 1;
+
+    if (nextVoteCount === 1) {
+      currentVotePrice = VOTE_PRICES.SINGLE; // 1-ovoz = 10000
+    } else if (nextVoteCount === 2) {
+      currentVotePrice = VOTE_PRICES.DOUBLE; // 2-ovoz = 12000
+    } else if (nextVoteCount <= 4) {
+      currentVotePrice = VOTE_PRICES.MEDIUM; // 3-4 ovoz = 14000
+    } else if (nextVoteCount <= 10) {
+      currentVotePrice = VOTE_PRICES.HIGH; // 5-10 ovoz = 20000
+    } else {
+      currentVotePrice = VOTE_PRICES.BULK; // 10+ ovoz = 25000
+    }
+
+    await ctx.reply(
+      `💰 Sizning balansingiz: ${user.balance || 0} so'm\n` +
+        `🎯 Jami ovozlar soni: ${votes} ta\n` +
+        `💵 Keyingi ovoz narxi: ${currentVotePrice} so'm\n\n` +
+        `ℹ️ Eslatma: Qancha ko'p ovoz bersangiz, shuncha ko'p pul ishlaysiz!\n` +
+        `1 ta ovoz = ${VOTE_PRICES.SINGLE} so'm\n` +
+        `2 ta ovoz = ${VOTE_PRICES.DOUBLE} x 2 = ${
+          VOTE_PRICES.DOUBLE * 2
+        } so'm\n` +
+        `3-4 ovozlar = ${VOTE_PRICES.MEDIUM} so'm har biri\n` +
+        `5-10 ovozlar = ${VOTE_PRICES.HIGH} so'm har biri\n` +
+        `10+ ovozlar = ${VOTE_PRICES.BULK} so'm har biri`,
+      {
+        reply_markup: getMainKeyboard(),
+      }
+    );
   } catch (error) {
     console.error("Xatolik:", error);
     await ctx.reply("Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.");
@@ -108,13 +150,19 @@ bot.hears("✅ Ovoz berishni tasdiqlash", async (ctx) => {
 bot.hears("❌ Bekor qilish", async (ctx) => {
   if (
     ctx.session.step === "waiting_phone" ||
-    ctx.session.step === "waiting_screenshot"
+    ctx.session.step === "waiting_screenshot" ||
+    ctx.session.step === "waiting_card"
   ) {
     ctx.session.step = "idle";
     ctx.session.phoneNumber = null;
-    await ctx.reply("Ovoz berish bekor qilindi.", {
-      reply_markup: getMainKeyboard(),
-    });
+    await ctx.reply(
+      ctx.session.step === "waiting_card"
+        ? "Pul yechish bekor qilindi."
+        : "Ovoz berish bekor qilindi.",
+      {
+        reply_markup: getMainKeyboard(),
+      }
+    );
   }
 });
 
@@ -141,7 +189,7 @@ bot.hears("💳 Pulni yechish", async (ctx) => {
 
     ctx.session.step = "waiting_card";
     await ctx.reply(
-      `Sizning balansingizda ${user.balance} so'm mavjud.\n\nPulni yechish uchun karta raqamingizni kiriting:`,
+      `Sizning balansingizda ${user.balance} so'm mavjud.\n\n⚠️ Diqqat! Pul yechib olingandan so'ng barcha ovozlaringiz va balans 0 ga tushiriladi.\n\nPulni yechish uchun karta raqamingizni kiriting:`,
       {
         reply_markup: new Keyboard()
           .text("❌ Bekor qilish")
@@ -187,16 +235,34 @@ bot.on("message", async (ctx) => {
           username: ctx.from.username,
           name: name,
           balance: 0,
+          votes: 0,
           registeredAt: new Date(),
         });
       }
+
+      const priceInfo = `
+🎯 Ovoz berish narxlari:
+1️⃣ 1 ta ovoz: ${VOTE_PRICES.SINGLE} so'm
+2️⃣ 2 ta ovoz: har biri ${VOTE_PRICES.DOUBLE} so'm (jami ${
+        VOTE_PRICES.DOUBLE * 2
+      } so'm)
+3️⃣ 3-4 ovoz: har biri ${VOTE_PRICES.MEDIUM} so'm
+4️⃣ 5-10 ovoz: har biri ${VOTE_PRICES.HIGH} so'm
+5️⃣ 10+ ovoz: har biri ${VOTE_PRICES.BULK} so'm
+
+💡 Misol uchun:
+1 ta ovoz = ${VOTE_PRICES.SINGLE} so'm
+2 ta ovoz = ${VOTE_PRICES.DOUBLE} x 2 = ${VOTE_PRICES.DOUBLE * 2} so'm
+3 ta ovoz = ${VOTE_PRICES.MEDIUM} x 3 = ${VOTE_PRICES.MEDIUM * 3} so'm
+4 ta ovoz = ${VOTE_PRICES.MEDIUM} x 4 = ${VOTE_PRICES.MEDIUM * 4} so'm
+5 ta ovoz = ${VOTE_PRICES.HIGH} x 5 = ${VOTE_PRICES.HIGH * 5} so'm`;
 
       await ctx.reply(
         `Rahmat, ${name}! ${
           existingUser
             ? "Ismingiz yangilandi"
             : "Siz muvaffaqiyatli ro'yxatdan o'tdingiz"
-        }.\n\nQuyidagi menyudan foydalanishingiz mumkin:`,
+        }.\n${priceInfo}\n\nQuyidagi menyudan foydalanishingiz mumkin:`,
         {
           reply_markup: getMainKeyboard(),
         }
@@ -355,6 +421,7 @@ bot.on("callback_query", async (ctx) => {
     if (data.startsWith("approve_") || data.startsWith("reject_")) {
       const [action, userId, phoneNumber] = data.split("_");
       const isApprove = action === "approve";
+      let votePrice = 0;
 
       // Ovozni tasdiqlash yoki bekor qilish
       await db.collection("votes").updateOne(
@@ -366,51 +433,124 @@ bot.on("callback_query", async (ctx) => {
         {$set: {status: isApprove ? "approved" : "rejected"}}
       );
 
-      if (isApprove) {
-        // Foydalanuvchi balansini yangilash
-        await db
-          .collection("users")
-          .updateOne(
-            {telegramId: parseInt(userId)},
-            {$inc: {balance: parseInt(process.env.VOTE_AMOUNT)}}
-          );
+      // Admin xabarini yangilash
+      try {
+        await ctx.editMessageCaption({
+          caption:
+            ctx.callbackQuery.message.caption +
+            `\n\n${isApprove ? "✅ Tasdiqlandi" : "❌ Bekor qilindi"}`,
+        });
+
+        // Buttonlarni o'chirish
+        await ctx.editMessageReplyMarkup({reply_markup: {inline_keyboard: []}});
+      } catch (error) {
+        // Xabar allaqachon o'zgartirilgan bo'lsa, xatolikni e'tiborsiz qoldiramiz
+        console.log("Xabarni yangilashda xatolik:", error.message);
       }
 
-      // Xabarni yangilash
-      const keyboard = new InlineKeyboard();
-      await ctx.editMessageCaption({
-        caption:
-          ctx.callbackQuery.message.caption +
-          `\n\n${isApprove ? "✅ Tasdiqlandi" : "❌ Bekor qilindi"}`,
-      });
+      if (isApprove) {
+        // Foydalanuvchi ma'lumotlarini olish
+        const user = await db
+          .collection("users")
+          .findOne({telegramId: parseInt(userId)});
+        const currentVotes = user.votes || 0;
+        const nextVoteCount = currentVotes + 1;
 
-      // Admin uchun tasdiqlash xabari
-      await ctx.answerCallbackQuery({
-        text: isApprove ? "Ovoz tasdiqlandi!" : "Ovoz bekor qilindi!",
-      });
+        // Ovoz narxini hisoblash
+        let totalEarned = 0;
 
-      // Foydalanuvchiga xabar
-      const userMessage = isApprove
-        ? `Sizning ovozingiz tasdiqlandi! Hisobingizga ${process.env.VOTE_AMOUNT} so'm qo'shildi.\n\nJoriy balansingizni ko'rish uchun "💰 Balansni ko'rish" tugmasini bosing.`
-        : "Kechirasiz, sizning ovozingiz tasdiqlanmadi. Iltimos, qaytadan urinib ko'ring.";
+        if (nextVoteCount === 1) {
+          totalEarned = nextVoteCount * VOTE_PRICES.SINGLE;
+        } else if (nextVoteCount === 2) {
+          totalEarned = nextVoteCount * VOTE_PRICES.DOUBLE;
+        } else if (nextVoteCount === 3 || nextVoteCount === 4) {
+          totalEarned = nextVoteCount * VOTE_PRICES.MEDIUM;
+        } else if (nextVoteCount >= 5 && nextVoteCount <= 10) {
+          totalEarned = nextVoteCount * VOTE_PRICES.HIGH;
+        } else {
+          totalEarned = nextVoteCount * VOTE_PRICES.BULK;
+        }
 
-      await bot.api.sendMessage(userId, userMessage);
+        // Foydalanuvchi balansini va ovozlar sonini yangilash
+        await db.collection("users").updateOne(
+          {telegramId: parseInt(userId)},
+          {
+            $set: {
+              balance: totalEarned,
+              votes: nextVoteCount,
+            },
+          }
+        );
+
+        // Keyingi ovoz narxini hisoblash
+        let nextVotePrice;
+        const afterNextVoteCount = nextVoteCount + 1;
+
+        if (afterNextVoteCount === 1) {
+          nextVotePrice = VOTE_PRICES.SINGLE; // 1-ovoz = 10000
+        } else if (afterNextVoteCount === 2) {
+          nextVotePrice = VOTE_PRICES.DOUBLE; // 2-ovoz = 12000
+        } else if (afterNextVoteCount <= 4) {
+          nextVotePrice = VOTE_PRICES.MEDIUM; // 3-4 ovoz = 14000
+        } else if (afterNextVoteCount <= 10) {
+          nextVotePrice = VOTE_PRICES.HIGH; // 5-10 ovoz = 20000
+        } else {
+          nextVotePrice = VOTE_PRICES.BULK; // 10+ ovoz = 25000
+        }
+
+        // Foydalanuvchiga xabar
+        const userMessage = isApprove
+          ? `Sizning ovozingiz tasdiqlandi! \n\n` +
+            `💡 Eslatma: Keyingi ovozingiz ${nextVotePrice} so'mdan hisoblanadi!\n\n` +
+            `Joriy balansingizni ko'rish uchun "💰 Balansni ko'rish" tugmasini bosing.`
+          : "Kechirasiz, sizning ovozingiz tasdiqlanmadi. Iltimos, qaytadan urinib ko'ring.";
+
+        await bot.api.sendMessage(userId, userMessage);
+      } else {
+        // Foydalanuvchiga xabar
+        await bot.api.sendMessage(
+          userId,
+          "Kechirasiz, sizning ovozingiz tasdiqlanmadi. Iltimos, qaytadan urinib ko'ring."
+        );
+      }
     } else if (data.startsWith("paid_") || data.startsWith("wrong_card_")) {
       const [action, userId, cardNumber] = data.split("_");
       const isPaid = action === "paid";
 
       if (isPaid) {
-        // Foydalanuvchi balansini 0 ga tushirish
+        // Foydalanuvchi balansini va ovozlar sonini 0 ga tushirish
         await db
           .collection("users")
-          .updateOne({telegramId: parseInt(userId)}, {$set: {balance: 0}});
+          .updateOne(
+            {telegramId: parseInt(userId)},
+            {$set: {balance: 0, votes: 0}}
+          );
       }
 
-      // Xabarni yangilash
-      await ctx.editMessageText(
-        ctx.callbackQuery.message.text +
-          `\n\n${isPaid ? "✅ To'landi" : "❌ Karta xato"}`
-      );
+      // Admin xabarini yangilash
+      try {
+        const messageText =
+          ctx.callbackQuery.message.text || ctx.callbackQuery.message.caption;
+        await ctx.editMessageText(
+          messageText + `\n\n${isPaid ? "✅ To'landi" : "❌ Karta xato"}`,
+          {
+            reply_markup: {inline_keyboard: []},
+          }
+        );
+      } catch (error) {
+        console.log("Xabarni yangilashda xatolik:", error.message);
+        // Agar editMessageText ishlamasa, yangi xabar yuboramiz
+        try {
+          const originalText =
+            ctx.callbackQuery.message.text || ctx.callbackQuery.message.caption;
+          await bot.api.sendMessage(
+            process.env.ADMIN_GROUP_ID,
+            originalText + `\n\n${isPaid ? "✅ To'landi" : "❌ Karta xato"}`
+          );
+        } catch (err) {
+          console.log("Yangi xabar yuborishda xatolik:", err.message);
+        }
+      }
 
       // Admin uchun tasdiqlash xabari
       await ctx.answerCallbackQuery({
