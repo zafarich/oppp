@@ -1,0 +1,19 @@
+{
+  "name": "openbudget_bot",
+  "version": "1.0.0",
+  "description": "Telegram bot using GrammyJS and MongoDB",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "dependencies": {
+    "grammy": "^1.21.1",
+    "mongodb": "^6.3.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

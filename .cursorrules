@@ -1,0 +1,42 @@
+{
+  "name": "telegram-bot-project",
+  "include": [
+    "src/**/*.js"
+  ],
+  "exclude": [
+    "node_modules/**/*"
+  ],
+  "fileLayout": {
+    "src": {
+      "config": {
+        "config.js": "Bot konfiguratsiyasi",
+        "database.js": "MongoDB ulanish konfiguratsiyasi"
+      },
+      "models": {
+        "user.model.js": "Foydalanuvchi modeli"
+      },
+      "controllers": {
+        "bot.controller.js": "Bot asosiy kontroleri",
+        "command.controller.js": "Bot buyruqlari kontroleri"
+      },
+      "services": {
+        "bot.service.js": "Bot xizmatlari",
+        "db.service.js": "Ma'lumotlar bazasi xizmatlari"
+      },
+      "utils": {
+        "helpers.js": "Yordamchi funksiyalar"
+      },
+      "index.js": "Asosiy fayl"
+    },
+    "package.json": "Loyiha bog'liqliklari",
+    ".env": "Muhit o'zgaruvchilari"
+  },
+  "dependencies": {
+    "required": [
+      "grammy",
+      "mongodb",
+      "dotenv",
+      "mongoose"
+    ]
+  }
+}
