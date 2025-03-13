@@ -187,6 +187,21 @@ bot.hears("💳 Pulni yechish", async (ctx) => {
       );
     }
 
+    // Faol pul yechish so'rovini tekshirish
+    const activeWithdrawal = await db.collection("withdrawals").findOne({
+      userId: ctx.from.id,
+      status: "pending",
+    });
+
+    if (activeWithdrawal) {
+      return await ctx.reply(
+        "Sizda faol pul yechish so'rovi mavjud. Iltimos admin javobini kuting.",
+        {
+          reply_markup: getMainKeyboard(),
+        }
+      );
+    }
+
     ctx.session.step = "waiting_card";
     await ctx.reply(
       `Sizning balansingizda ${user.balance} so'm mavjud.\n\n⚠️ Diqqat! Pul yechib olingandan so'ng barcha ovozlaringiz va balans 0 ga tushiriladi.\n\nPulni yechish uchun karta raqamingizni kiriting:`,
@@ -236,6 +251,7 @@ bot.on("message", async (ctx) => {
           name: name,
           balance: 0,
           votes: 0,
+          phoneNumbers: [], // Ovoz bergan telefon raqamlar massivi
           registeredAt: new Date(),
         });
       }
@@ -300,6 +316,15 @@ bot.on("message", async (ctx) => {
         .collection("users")
         .findOne({telegramId: ctx.from.id});
 
+      // Pul yechish so'rovini saqlash
+      await db.collection("withdrawals").insertOne({
+        userId: ctx.from.id,
+        cardNumber: cardNumber,
+        amount: user.balance,
+        status: "pending",
+        createdAt: new Date(),
+      });
+
       // Admin guruhiga yuborish
       const keyboard = new InlineKeyboard()
         .text("✅ To'landi", `paid_${ctx.from.id}_${cardNumber}`)
@@ -309,7 +334,7 @@ bot.on("message", async (ctx) => {
         process.env.ADMIN_GROUP_ID,
         `💳 Yangi pul yechish so'rovi!\n\n` +
           `👤 Foydalanuvchi: ${user.name}\n` +
-          `💰 Balans: ${user.balance} so'm\n` +
+          `💰 So'ralgan summa: ${user.balance} so'm\n` +
           `💳 Karta raqami: ${cardNumber}`,
         {reply_markup: keyboard}
       );
@@ -340,6 +365,24 @@ bot.on("message", async (ctx) => {
         }
       );
     }
+
+    // Telefon raqamni tekshirish
+    const existingVote = await db.collection("users").findOne({
+      phoneNumbers: ctx.message.text,
+    });
+
+    if (existingVote) {
+      return await ctx.reply(
+        "Bu telefon raqam orqali allaqachon ovoz berilgan. Iltimos boshqa telefon raqam kiriting:",
+        {
+          reply_markup: new Keyboard()
+            .text("❌ Bekor qilish")
+            .resized()
+            .persistent(),
+        }
+      );
+    }
+
     ctx.session.phoneNumber = ctx.message.text;
     ctx.session.step = "waiting_screenshot";
     await ctx.reply(
@@ -358,6 +401,14 @@ bot.on("message", async (ctx) => {
     const currentTime = new Date().toLocaleString("uz-UZ");
 
     try {
+      // Telefon raqamni foydalanuvchining raqamlar ro'yxatiga qo'shish
+      await db
+        .collection("users")
+        .updateOne(
+          {telegramId: ctx.from.id},
+          {$push: {phoneNumbers: phoneNumber}}
+        );
+
       // Admin guruhiga yuborish
       const keyboard = new InlineKeyboard()
         .text(
@@ -433,6 +484,16 @@ bot.on("callback_query", async (ctx) => {
         {$set: {status: isApprove ? "approved" : "rejected"}}
       );
 
+      if (!isApprove) {
+        // Ovoz bekor qilinganda telefon raqamni ro'yxatdan o'chirish
+        await db
+          .collection("users")
+          .updateOne(
+            {telegramId: parseInt(userId)},
+            {$pull: {phoneNumbers: "+" + phoneNumber}}
+          );
+      }
+
       // Admin xabarini yangilash
       try {
         await ctx.editMessageCaption({
@@ -475,8 +536,10 @@ bot.on("callback_query", async (ctx) => {
         await db.collection("users").updateOne(
           {telegramId: parseInt(userId)},
           {
-            $set: {
+            $inc: {
               balance: totalEarned,
+            },
+            $set: {
               votes: nextVoteCount,
             },
           }
@@ -517,14 +580,59 @@ bot.on("callback_query", async (ctx) => {
       const [action, userId, cardNumber] = data.split("_");
       const isPaid = action === "paid";
 
+      // Pul yechish so'rovini topish
+      const withdrawal = await db.collection("withdrawals").findOne({
+        userId: parseInt(userId),
+        cardNumber: cardNumber,
+        status: "pending",
+      });
+
+      if (!withdrawal) {
+        return await ctx.answerCallbackQuery({
+          text: "Pul yechish so'rovi topilmadi!",
+          show_alert: true,
+        });
+      }
+
       if (isPaid) {
-        // Foydalanuvchi balansini va ovozlar sonini 0 ga tushirish
+        // Foydalanuvchi ma'lumotlarini olish
+        const user = await db.collection("users").findOne({
+          telegramId: parseInt(userId),
+        });
+
+        // Foydalanuvchi balansidan faqat yechilgan summani ayirish
+        await db.collection("users").updateOne(
+          {telegramId: parseInt(userId)},
+          {$set: {votes: 0}, $inc: {balance: -withdrawal.amount}} // balance dan yechilgan summani ayirish va ovozlarni 0 ga tushirish
+        );
+
+        // Pul yechish so'rovini yakunlash
         await db
-          .collection("users")
-          .updateOne(
-            {telegramId: parseInt(userId)},
-            {$set: {balance: 0, votes: 0}}
-          );
+          .collection("withdrawals")
+          .updateOne({_id: withdrawal._id}, {$set: {status: "completed"}});
+
+        // Yangilangan balansni olish
+        const updatedUser = await db.collection("users").findOne({
+          telegramId: parseInt(userId),
+        });
+
+        // Foydalanuvchiga xabar
+        await bot.api.sendMessage(
+          userId,
+          `💰 Sizning ${withdrawal.amount} so'm pulingiz ko'rsatilgan karta raqamiga o'tkazib berildi!\n\n` +
+            `💡 Eslatma: Hisobingizda ${updatedUser.balance} so'm qoldi.`
+        );
+      } else {
+        // Pul yechish so'rovini bekor qilish
+        await db
+          .collection("withdrawals")
+          .updateOne({_id: withdrawal._id}, {$set: {status: "rejected"}});
+
+        // Foydalanuvchiga xabar
+        await bot.api.sendMessage(
+          userId,
+          '❌ Kechirasiz, siz kiritgan karta raqami xato. Iltimos, "💳 Pulni yechish" tugmasini bosib, qaytadan urinib ko\'ring.'
+        );
       }
 
       // Admin xabarini yangilash
@@ -532,20 +640,23 @@ bot.on("callback_query", async (ctx) => {
         const messageText =
           ctx.callbackQuery.message.text || ctx.callbackQuery.message.caption;
         await ctx.editMessageText(
-          messageText + `\n\n${isPaid ? "✅ To'landi" : "❌ Karta xato"}`,
+          messageText +
+            `\n\n${isPaid ? "✅ To'landi" : "❌ Karta xato"}\n` +
+            `💰 To'langan summa: ${withdrawal.amount} so'm`,
           {
             reply_markup: {inline_keyboard: []},
           }
         );
       } catch (error) {
         console.log("Xabarni yangilashda xatolik:", error.message);
-        // Agar editMessageText ishlamasa, yangi xabar yuboramiz
         try {
           const originalText =
             ctx.callbackQuery.message.text || ctx.callbackQuery.message.caption;
           await bot.api.sendMessage(
             process.env.ADMIN_GROUP_ID,
-            originalText + `\n\n${isPaid ? "✅ To'landi" : "❌ Karta xato"}`
+            originalText +
+              `\n\n${isPaid ? "✅ To'landi" : "❌ Karta xato"}\n` +
+              `💰 To'langan summa: ${withdrawal.amount} so'm`
           );
         } catch (err) {
           console.log("Yangi xabar yuborishda xatolik:", err.message);
@@ -556,13 +667,6 @@ bot.on("callback_query", async (ctx) => {
       await ctx.answerCallbackQuery({
         text: isPaid ? "To'lov tasdiqlandi!" : "Karta xato deb belgilandi!",
       });
-
-      // Foydalanuvchiga xabar
-      const userMessage = isPaid
-        ? "💰 Sizning pulingiz ko'rsatilgan karta raqamiga o'tkazib berildi!"
-        : '❌ Kechirasiz, siz kiritgan karta raqami xato. Iltimos, "💳 Pulni yechish" tugmasini bosib, qaytadan urinib ko\'ring.';
-
-      await bot.api.sendMessage(userId, userMessage);
     }
   } catch (error) {
     console.error("Tasdiqlashda xatolik:", error);
