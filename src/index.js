@@ -329,7 +329,7 @@ bot.on("message", async (ctx) => {
     ctx.session.phoneNumber = ctx.message.text;
     ctx.session.step = "waiting_screenshot";
     await ctx.reply(
-      "✅ Telefon raqam qabul qilindi!\n\nEndi ovoz berganingiz haqida ekran rasmini (screenshot) yuboring:",
+      "✅ Telefon raqam qabul qilindi!\n\nEndi ovoz berganingiz haqida ekran rasmini(screenshot) ovoz bergan rasmiy botdan olib yuboring:\n\n⚠️ Bu botdan skrinshot olib tashlamang. Kodni jo'natgan botdan skrinshot olib tashlang. Aks holda ovoz tasdiqlanmaydi",
       {
         reply_markup: new Keyboard()
           .text("❌ Bekor qilish")
