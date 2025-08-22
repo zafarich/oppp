@@ -397,7 +397,7 @@ bot.on("message", async (ctx) => {
       ctx.session.phoneNumber = null;
 
       await ctx.reply(
-        "Rahmat! Sizning ovozingiz admin tomonidan tekshirilmoqda. Tez orada tasdiqlanadi",
+        "Rahmat! Sizning ovozingiz 1 soatdan keyin tizimda ko'rinadi va shundan keyin tasdiqlanadi. \n\nIltimos, kamida 1 soat kuting.",
         {
           reply_markup: getMainKeyboard(),
         }
